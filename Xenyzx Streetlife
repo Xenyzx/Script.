@@ -1,0 +1,842 @@
+-- Xenyzx Hub: Legit | Rage | ESP | Ally | Vehicle | Credits
+-- Street Life base: Projectile.new silent, camera aimbot, chams, ally skip, vehicle mods
+-- Key: RightShift menu only (FOV hides too)
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then Players:GetPropertyChangedSignal("LocalPlayer"):Wait() LocalPlayer = Players.LocalPlayer end
+pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", {Title = "Xenyzx Hub", Text = "Loading hub", Duration = 3}) end)
+print("[SX] hub start")
+pcall(function()
+    if getgenv and getgenv()._SXH then pcall(function() getgenv()._SXH:Disconnect() end) end
+    if getgenv then getgenv()._SXH = nil end
+end)
+
+local State = {
+    AimOn = false, AimMode = "Hold RMB", AimPart = "Head",
+    AimFOV = 150, AimSmooth = 8, AimPred = 0.02, AimSticky = true, AimWall = true, AimShow = true,
+    SilentOn = true, HitPart = "Head", SilentFOV = 200, HitChance = 100,
+    SilentPred = 0.03, SilentWallCheck = false, SilentShow = true,
+    Wallbang = true, BulletTP = false,
+    Chams = true, Name = true, Dist = true, Box = false, Fill = 0.6,
+    IgnoreAllies = true, MaxDist = 1500,
+    VehSpeedOn = false, VehSpeedMult = 2, VehBrakeOn = false, VehBrakeMult = 3,
+    VehFlyOn = false, VehFlySpeed = 120,
+}
+local Allies = {}
+local function isAlly(plr)
+    if not State.IgnoreAllies then return false end
+    local nm = string.lower(plr.Name)
+    for i = 1, #Allies do
+        if string.lower(Allies[i]) == nm then return true end
+    end
+    return false
+end
+
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+pcall(function()
+    workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() Camera = workspace.CurrentCamera end)
+end)
+
+local VIS = Color3.fromRGB(0, 255, 170)
+local HID = Color3.fromRGB(255, 40, 90)
+local PINK = Color3.fromRGB(255, 0, 200)
+local CYAN = Color3.fromRGB(0, 255, 255)
+
+local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+if not playerGui then playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") end
+
+local FovGui = nil
+local ESPGui = nil
+local AimCircle = nil
+local AimStroke = nil
+local SilCircle = nil
+local SilStroke = nil
+local SilTracer = nil
+pcall(function()
+    if playerGui then
+        local a = playerGui:FindFirstChild("SXH_FOV")
+        if a then a:Destroy() end
+        local b = playerGui:FindFirstChild("SXH_ESP")
+        if b then b:Destroy() end
+    end
+    FovGui = Instance.new("ScreenGui")
+    FovGui.Name = "SXH_FOV"
+    FovGui.ResetOnSpawn = false
+    FovGui.IgnoreGuiInset = true
+    FovGui.DisplayOrder = 50
+    FovGui.Parent = playerGui
+    AimCircle = Instance.new("Frame")
+    AimCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    AimCircle.BackgroundTransparency = 1
+    AimCircle.Visible = false
+    AimCircle.Parent = FovGui
+    AimStroke = Instance.new("UIStroke", AimCircle)
+    AimStroke.Color = CYAN
+    AimStroke.Thickness = 2
+    AimStroke.Transparency = 0.15
+    local u1 = Instance.new("UICorner", AimCircle)
+    u1.CornerRadius = UDim.new(1, 0)
+    SilCircle = Instance.new("Frame")
+    SilCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    SilCircle.BackgroundTransparency = 1
+    SilCircle.Visible = false
+    SilCircle.Parent = FovGui
+    SilStroke = Instance.new("UIStroke", SilCircle)
+    SilStroke.Color = PINK
+    SilStroke.Thickness = 2
+    SilStroke.Transparency = 0.15
+    local u2 = Instance.new("UICorner", SilCircle)
+    u2.CornerRadius = UDim.new(1, 0)
+    SilTracer = Instance.new("Frame")
+    SilTracer.AnchorPoint = Vector2.new(0.5, 0.5)
+    SilTracer.BackgroundColor3 = PINK
+    SilTracer.BorderSizePixel = 0
+    SilTracer.Visible = false
+    SilTracer.Parent = FovGui
+    ESPGui = Instance.new("ScreenGui")
+    ESPGui.Name = "SXH_ESP"
+    ESPGui.ResetOnSpawn = false
+    ESPGui.IgnoreGuiInset = true
+    ESPGui.DisplayOrder = 49
+    ESPGui.Parent = playerGui
+end)
+
+local menuOpen = true
+local holdingRMB = false
+UIS.InputBegan:Connect(function(input, g)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then holdingRMB = true end
+    -- RightShift is the ONLY bind (toggles menu)
+    if not g and input.KeyCode == Enum.KeyCode.RightShift then menuOpen = not menuOpen end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then holdingRMB = false end
+end)
+
+local function myRoot()
+    local c = LocalPlayer.Character
+    if not c then return nil end
+    return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+end
+local function validChar(plr)
+    if plr == LocalPlayer then return nil end
+    if isAlly(plr) then return nil end
+    local c = plr.Character
+    if not c then return nil end
+    local hum = c:FindFirstChildWhichIsA("Humanoid")
+    if not hum then return nil end
+    if hum.Health <= 0 then return nil end
+    local root = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+    if not root then return nil end
+    return c, hum, root
+end
+
+local rayP = RaycastParams.new()
+pcall(function() rayP.FilterType = Enum.RaycastFilterType.Exclude end)
+pcall(function() rayP.IgnoreWater = true end)
+local function vis(fromPos, toPos, ch)
+    local ok, r = pcall(function()
+        rayP.FilterDescendantsInstances = {LocalPlayer.Character, ch, workspace.CurrentCamera}
+        return workspace:Raycast(fromPos, toPos - fromPos, rayP) == nil
+    end)
+    if ok then return r end
+    return true
+end
+local function roll(p)
+    if p >= 100 then return true end
+    if p <= 0 then return false end
+    return math.random(1, 100) <= p
+end
+
+local silPart = nil
+local silPlr = nil
+local silScreen = nil
+local function pickSilent(char)
+    if State.HitPart == "Head" then return char:FindFirstChild("Head") end
+    if State.HitPart == "Torso" then return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") end
+    return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+end
+local function findSilent()
+    if not State.SilentOn then return nil, nil, nil end
+    if not Camera then return nil, nil, nil end
+    local mp = UIS:GetMouseLocation()
+    local bp, bl, bs, bd = nil, nil, nil, State.SilentFOV
+    local mr = myRoot()
+    for _, plr in pairs(Players:GetPlayers()) do
+        local c, hum, root = validChar(plr)
+        if c then
+            local dist = 0
+            if mr then dist = (mr.Position - root.Position).Magnitude end
+            if dist <= State.MaxDist then
+                local part = pickSilent(c)
+                if part then
+                    local sp, on = Camera:WorldToViewportPoint(part.Position)
+                    if on then
+                        local sd = (Vector2.new(sp.X, sp.Y) - mp).Magnitude
+                        if sd <= State.SilentFOV and sd < bd then
+                            if not State.SilentWallCheck or vis(Camera.CFrame.Position, part.Position, c) then
+                                bp = part
+                                bl = plr
+                                bs = Vector2.new(sp.X, sp.Y)
+                                bd = sd
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bp, bl, bs
+end
+
+local aimLock = nil
+local function aimPosOf(char)
+    if State.AimPart == "Head" then
+        local h = char:FindFirstChild("Head")
+        if h then return h.Position end
+    end
+    local r = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if r then return r.Position end
+    return nil
+end
+local function findAim()
+    if not State.AimOn then return nil, nil end
+    local want = false
+    if State.AimMode == "Always" then want = true end
+    if State.AimMode == "Hold RMB" and holdingRMB then want = true end
+    if not want then
+        if State.AimMode ~= "Always" then aimLock = nil end
+        return nil, nil
+    end
+    if not Camera then return nil, nil end
+    if State.AimSticky and aimLock then
+        local c = aimLock.Character
+        local hum = c and c:FindFirstChildWhichIsA("Humanoid")
+        if aimLock.Parent and c and hum and hum.Health > 0 and not isAlly(aimLock) then
+            local ap = aimPosOf(c)
+            if ap then
+                local sp, on = Camera:WorldToViewportPoint(ap)
+                if on then
+                    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    if (Vector2.new(sp.X, sp.Y) - center).Magnitude <= State.AimFOV * 1.5 then
+                        return aimLock, ap
+                    end
+                end
+            end
+        end
+        aimLock = nil
+    end
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local best, bpos, bd = nil, nil, State.AimFOV
+    local mr = myRoot()
+    for _, plr in pairs(Players:GetPlayers()) do
+        local c, hum, root = validChar(plr)
+        if c then
+            local d = 0
+            if mr then d = (mr.Position - root.Position).Magnitude end
+            if d <= State.MaxDist then
+                local ap = aimPosOf(c)
+                if ap then
+                    local sp, on = Camera:WorldToViewportPoint(ap)
+                    if on then
+                        local sd = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        if sd <= State.AimFOV and sd < bd then
+                            if not State.AimWall or vis(Camera.CFrame.Position, ap, c) then
+                                best = plr
+                                bpos = ap
+                                bd = sd
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if best and State.AimSticky then aimLock = best end
+    return best, bpos
+end
+
+local okP, Projectile = pcall(require, game:GetService("ReplicatedStorage").Modules.GunFramework.Modules.Projectile)
+if okP and Projectile and Projectile.new then
+    local origNew = Projectile.new
+    Projectile.new = function(params)
+        if State.SilentOn and params and params.Origin and params.Direction then
+            local head = silPart
+            if head and head:IsDescendantOf(workspace) then
+                if roll(State.HitChance) then
+                    -- Bullet TP mode (from your bullet TP script): spawn above head, shoot down
+                    if State.BulletTP then
+                        params.Origin = head.Position + Vector3.new(0, 2, 0)
+                        params.Direction = Vector3.new(0, -1, 0)
+                    else
+                        local tp = head.Position
+                        if State.SilentPred > 0 then
+                            local m = head:FindFirstAncestorOfClass("Model")
+                            local hr = nil
+                            if m then hr = m:FindFirstChild("HumanoidRootPart") end
+                            if hr then tp = tp + hr.Velocity * State.SilentPred end
+                        end
+                        params.Direction = (tp - params.Origin).Unit
+                        -- Wallbang mode (from your wallbang script): Include-only filter hits through walls
+                        if State.Wallbang and params.RaycastParams then
+                            pcall(function()
+                                params.RaycastParams.FilterDescendantsInstances = {head.Parent}
+                                params.RaycastParams.FilterType = Enum.RaycastFilterType.Include
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+        return origNew(params)
+    end
+    print("[SX] silent hooked (wallbang + bulletTP merged)")
+else
+    warn("[SX] Projectile module missing")
+end
+
+local store = {}
+local function getS(plr)
+    if store[plr] then return store[plr] end
+    local s = {}
+    local hl = Instance.new("Highlight")
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = State.Fill
+    hl.OutlineTransparency = 0
+    hl.FillColor = HID
+    hl.OutlineColor = HID
+    hl.Enabled = false
+    hl.Parent = ESPGui
+    s.hl = hl
+    local bill = Instance.new("BillboardGui")
+    bill.Size = UDim2.new(0, 180, 0, 40)
+    bill.StudsOffset = Vector3.new(0, 3, 0)
+    bill.AlwaysOnTop = true
+    bill.Enabled = false
+    bill.Parent = ESPGui
+    local n = Instance.new("TextLabel")
+    n.Size = UDim2.new(1, 0, 0, 18)
+    n.BackgroundTransparency = 1
+    n.Font = Enum.Font.GothamBold
+    n.TextSize = 13
+    n.TextStrokeTransparency = 0
+    n.Parent = bill
+    local d = Instance.new("TextLabel")
+    d.Size = UDim2.new(1, 0, 0, 14)
+    d.Position = UDim2.new(0, 0, 0, 18)
+    d.BackgroundTransparency = 1
+    d.Font = Enum.Font.Gotham
+    d.TextSize = 11
+    d.TextColor3 = Color3.fromRGB(200, 255, 230)
+    d.TextStrokeTransparency = 0
+    d.Parent = bill
+    s.bill = bill
+    s.n = n
+    s.d = d
+    local box = Instance.new("Frame")
+    box.BackgroundTransparency = 1
+    box.Visible = false
+    box.BorderSizePixel = 0
+    box.Parent = ESPGui
+    local bstr = Instance.new("UIStroke", box)
+    bstr.Thickness = 1.5
+    s.box = box
+    s.boxStroke = bstr
+    store[plr] = s
+    return s
+end
+
+local vehSeatBoosted = nil
+local vehOrigMax = 0
+local vehTuneObj = nil
+local vehOrigHP = 0
+local vehAppliedMult = 0
+local flyGyro = nil
+local flyVel = nil
+local function getSeat()
+    local ch = LocalPlayer.Character
+    local hum = nil
+    if ch then hum = ch:FindFirstChildWhichIsA("Humanoid") end
+    local seat = nil
+    if hum then seat = hum.SeatPart end
+    if seat and seat:IsA("VehicleSeat") then return seat end
+    return nil
+end
+local function clearFly()
+    pcall(function() if flyGyro then flyGyro:Destroy() end end)
+    pcall(function() if flyVel then flyVel:Destroy() end end)
+    flyGyro = nil
+    flyVel = nil
+end
+local function restoreBoost()
+    pcall(function()
+        if vehSeatBoosted and vehSeatBoosted.Parent then
+            vehSeatBoosted.MaxSpeed = vehOrigMax
+        end
+        if vehTuneObj and vehTuneObj.Parent then
+            vehTuneObj.Value = vehOrigHP
+        end
+    end)
+    vehSeatBoosted = nil
+    vehTuneObj = nil
+    vehAppliedMult = 0
+end
+local function updateVehicle()
+    local seat = getSeat()
+    if State.VehSpeedOn and seat then
+        if vehSeatBoosted ~= seat or vehAppliedMult ~= State.VehSpeedMult then
+            restoreBoost()
+            vehOrigMax = seat.MaxSpeed
+            seat.MaxSpeed = vehOrigMax * State.VehSpeedMult
+            vehSeatBoosted = seat
+            vehAppliedMult = State.VehSpeedMult
+            local model = seat:FindFirstAncestorOfClass("Model")
+            if model then
+                for _, d in ipairs(model:GetDescendants()) do
+                    if d.Name == "HorsePower" and (d:IsA("NumberValue") or d:IsA("IntValue")) then
+                        vehTuneObj = d
+                        vehOrigHP = d.Value
+                        d.Value = vehOrigHP * State.VehSpeedMult
+                        break
+                    end
+                end
+            end
+        end
+    else
+        if vehSeatBoosted then restoreBoost() end
+    end
+    local root = nil
+    if seat then
+        pcall(function() root = seat.AssemblyRootPart end)
+        if not root then root = seat end
+    end
+    if State.VehBrakeOn and seat and root then
+        local braking = UIS:IsKeyDown(Enum.KeyCode.S)
+        if not braking then
+            pcall(function()
+                if seat.ThrottleFloat < -0.1 then braking = true end
+            end)
+        end
+        if braking then
+            pcall(function()
+                local v = root.AssemblyLinearVelocity
+                local f = math.clamp(1 - 0.08 * State.VehBrakeMult, 0, 1)
+                root.AssemblyLinearVelocity = Vector3.new(v.X * f, v.Y, v.Z * f)
+            end)
+        end
+    end
+    if State.VehFlyOn and seat and root and Camera then
+        if not flyGyro or not flyVel or flyGyro.Parent == nil or flyVel.Parent == nil then
+            clearFly()
+            flyGyro = Instance.new("BodyGyro")
+            flyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+            flyGyro.P = 3000
+            flyGyro.Parent = root
+            flyVel = Instance.new("BodyVelocity")
+            flyVel.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+            flyVel.Parent = root
+        end
+        local look = Camera.CFrame.LookVector
+        local right = Camera.CFrame.RightVector
+        local dir = Vector3.new(0, 0, 0)
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + look end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - look end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + right end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - right end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+        pcall(function()
+            flyGyro.CFrame = CFrame.new(root.Position, root.Position + look)
+            if dir.Magnitude > 0.1 then
+                flyVel.Velocity = dir.Unit * State.VehFlySpeed
+            else
+                flyVel.Velocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    else
+        clearFly()
+    end
+end
+
+local Rayfield = nil
+do
+    local urls = {
+        "https://sirius.menu/rayfield",
+        "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua",
+    }
+    for ui = 1, #urls do
+        local u = urls[ui]
+        local okg, res = pcall(function() return game:HttpGet(u) end)
+        if okg and type(res) == "string" and #res > 1000 then
+            local fn = loadstring(res)
+            if type(fn) == "function" then
+                local ok2, lib = pcall(fn)
+                if ok2 and lib then Rayfield = lib print("[SX] Rayfield ok") break end
+            end
+        end
+    end
+end
+if not Rayfield then warn("[SX] Rayfield blocked, fallback only") end
+
+local allyLabel = nil
+local miscLabel = nil
+local function allyText()
+    if #Allies == 0 then return "Allies: none" end
+    return "Allies: " .. table.concat(Allies, ", ")
+end
+local function refreshAllies()
+    pcall(function()
+        if allyLabel then allyLabel:Set(allyText()) end
+    end)
+end
+
+if Rayfield then
+    local okw = pcall(function()
+        local Window = Rayfield:CreateWindow({
+            Name = "Xenyzx Hub",
+            LoadingTitle = "Xenyzx Hub",
+            LoadingSubtitle = "legit rage esp ally",
+            Theme = "Amethyst",
+            ToggleUIKeybind = Enum.KeyCode.RightShift,
+            DisableRayfieldPrompts = false,
+            DisableBuildWarnings = true,
+            ConfigurationSaving = {Enabled = false},
+        })
+        local TabAim = Window:CreateTab("Legit", 4483362458)
+        local TabSilent = Window:CreateTab("Rage", 4483362458)
+        local TabESP = Window:CreateTab("ESP", 4483362458)
+        local TabAlly = Window:CreateTab("Ally", 4483362458)
+        local TabVeh = Window:CreateTab("Vehicle", 4483362458)
+        local TabMisc = Window:CreateTab("Credits", 4483362458)
+
+        TabAim:CreateParagraph({Title = "Legit aimbot", Content = "Hold right click (Hold RMB mode). Use toggles only, RightShift opens menu."})
+        TabAim:CreateToggle({Name = "Aimbot", CurrentValue = false, Flag = "HX_A1", Callback = function(v) State.AimOn = v end})
+        TabAim:CreateDropdown({Name = "Mode", Options = {"Hold RMB", "Always"}, CurrentOption = {"Hold RMB"}, MultipleOptions = false, Flag = "HX_A2", Callback = function(o) State.AimMode = o[1] end})
+        TabAim:CreateDropdown({Name = "Target", Options = {"Head", "Torso"}, CurrentOption = {"Head"}, MultipleOptions = false, Flag = "HX_A3", Callback = function(o) State.AimPart = o[1] end})
+        TabAim:CreateSlider({Name = "FOV", Range = {50, 600}, Increment = 10, CurrentValue = 150, Flag = "HX_A4", Callback = function(v) State.AimFOV = v end})
+        TabAim:CreateSlider({Name = "Smoothness", Range = {1, 20}, Increment = 1, CurrentValue = 8, Flag = "HX_A5", Callback = function(v) State.AimSmooth = v end})
+        TabAim:CreateSlider({Name = "Prediction", Range = {0, 30}, Increment = 1, CurrentValue = 2, Flag = "HX_A9", Callback = function(v) State.AimPred = v / 100 end})
+        TabAim:CreateToggle({Name = "Sticky lock", CurrentValue = true, Flag = "HX_A6", Callback = function(v) State.AimSticky = v end})
+        TabAim:CreateToggle({Name = "Wall check", CurrentValue = true, Flag = "HX_A7", Callback = function(v) State.AimWall = v end})
+        TabAim:CreateToggle({Name = "Show FOV", CurrentValue = true, Flag = "HX_A8", Callback = function(v) State.AimShow = v end})
+
+        TabSilent:CreateParagraph({Title = "Rage silent", Content = "Aim near player in pink circle and shoot. Toggle only, no keybinds."})
+        TabSilent:CreateToggle({Name = "Silent Aim", CurrentValue = true, Flag = "HX_S1", Callback = function(v) State.SilentOn = v end})
+        TabSilent:CreateDropdown({Name = "Hit Part", Options = {"Head", "Torso"}, CurrentOption = {"Head"}, MultipleOptions = false, Flag = "HX_S2", Callback = function(o) State.HitPart = o[1] end})
+        TabSilent:CreateSlider({Name = "FOV", Range = {50, 600}, Increment = 10, CurrentValue = 200, Flag = "HX_S3", Callback = function(v) State.SilentFOV = v end})
+        TabSilent:CreateSlider({Name = "Hit Chance", Range = {0, 100}, Increment = 5, CurrentValue = 100, Flag = "HX_S4", Callback = function(v) State.HitChance = v end})
+        TabSilent:CreateToggle({Name = "Wall Check", CurrentValue = false, Flag = "HX_S5", Callback = function(v) State.SilentWallCheck = v end})
+        TabSilent:CreateToggle({Name = "Wallbang (shoot thru walls)", CurrentValue = true, Flag = "HX_S8", Callback = function(v)
+            State.Wallbang = v
+            if v then State.BulletTP = false end
+        end})
+        TabSilent:CreateToggle({Name = "Bullet TP (spawn above head)", CurrentValue = false, Flag = "HX_S9", Callback = function(v)
+            State.BulletTP = v
+            if v then State.Wallbang = false end
+        end})
+        TabSilent:CreateSlider({Name = "Prediction", Range = {0, 30}, Increment = 1, CurrentValue = 3, Flag = "HX_S7", Callback = function(v) State.SilentPred = v / 100 end})
+        TabSilent:CreateToggle({Name = "Show FOV", CurrentValue = true, Flag = "HX_S6", Callback = function(v) State.SilentShow = v end})
+
+        TabESP:CreateParagraph({Title = "ESP", Content = "Green visible, red behind wall, pink silent target."})
+        TabESP:CreateToggle({Name = "Chams", CurrentValue = true, Flag = "HX_E1", Callback = function(v) State.Chams = v end})
+        TabESP:CreateToggle({Name = "Names", CurrentValue = true, Flag = "HX_E2", Callback = function(v) State.Name = v end})
+        TabESP:CreateToggle({Name = "Distance", CurrentValue = true, Flag = "HX_E3", Callback = function(v) State.Dist = v end})
+        TabESP:CreateToggle({Name = "Box", CurrentValue = false, Flag = "HX_E4", Callback = function(v) State.Box = v end})
+        TabESP:CreateSlider({Name = "Fill", Range = {0, 100}, Increment = 5, CurrentValue = 60, Flag = "HX_E5", Callback = function(v) State.Fill = v / 100 end})
+
+        TabAlly:CreateParagraph({Title = "Ally list", Content = "Allies are skipped by aimbot, silent and ESP."})
+        TabAlly:CreateToggle({Name = "Ignore allies", CurrentValue = true, Flag = "HX_L1", Callback = function(v) State.IgnoreAllies = v end})
+        TabAlly:CreateInput({Name = "Add ally name", CurrentValue = "", PlaceholderText = "Exact username", RemoveTextAfterFocusLost = true, Flag = "HX_L2", Callback = function(t) end})
+        TabAlly:CreateButton({Name = "Add ally", Callback = function()
+            local t = ""
+            pcall(function() t = Rayfield.Flags.HX_L2.CurrentValue end)
+            if type(t) == "string" and #t > 0 then
+                table.insert(Allies, t)
+                refreshAllies()
+            end
+        end})
+        TabAlly:CreateInput({Name = "Remove ally name", CurrentValue = "", PlaceholderText = "Exact username", RemoveTextAfterFocusLost = true, Flag = "HX_L3", Callback = function(t) end})
+        TabAlly:CreateButton({Name = "Remove ally", Callback = function()
+            local t = ""
+            pcall(function() t = Rayfield.Flags.HX_L3.CurrentValue end)
+            if type(t) == "string" and #t > 0 then
+                for i = #Allies, 1, -1 do
+                    if string.lower(Allies[i]) == string.lower(t) then table.remove(Allies, i) end
+                end
+                refreshAllies()
+            end
+        end})
+        TabAlly:CreateButton({Name = "Clear allies", Callback = function()
+            Allies = {}
+            refreshAllies()
+        end})
+        allyLabel = TabAlly:CreateLabel("Allies: none")
+
+        TabVeh:CreateParagraph({Title = "Vehicle mods", Content = "Sit in a car. Speed applies while driving (hold W). Brake while holding S. Fly: W S move, Space up, LeftControl down."})
+        TabVeh:CreateToggle({Name = "Speed boost", CurrentValue = false, Flag = "HX_V1", Callback = function(v) State.VehSpeedOn = v end})
+        TabVeh:CreateSlider({Name = "Speed mult", Range = {1, 5}, Increment = 0.5, CurrentValue = 2, Flag = "HX_V2", Callback = function(v) State.VehSpeedMult = v end})
+        TabVeh:CreateToggle({Name = "Brake boost", CurrentValue = false, Flag = "HX_V3", Callback = function(v) State.VehBrakeOn = v end})
+        TabVeh:CreateSlider({Name = "Brake mult", Range = {1, 8}, Increment = 1, CurrentValue = 3, Flag = "HX_V4", Callback = function(v) State.VehBrakeMult = v end})
+        TabVeh:CreateToggle({Name = "Vehicle fly", CurrentValue = false, Flag = "HX_V5", Callback = function(v) State.VehFlyOn = v end})
+        TabVeh:CreateSlider({Name = "Fly speed", Range = {20, 300}, Increment = 10, CurrentValue = 120, Flag = "HX_V6", Callback = function(v) State.VehFlySpeed = v end})
+
+        TabMisc:CreateParagraph({Title = "Credits", Content = "Xenyzx Hub | Discord: phemonaz"})
+        TabMisc:CreateLabel("Owner: phemonaz")
+        TabMisc:CreateLabel("Server: https://discord.gg/uKbHH6vKD")
+        TabMisc:CreateButton({Name = "Copy Discord Server Link", Callback = function()
+            pcall(function()
+                if setclipboard then setclipboard("https://discord.gg/uKbHH6vKD") end
+            end)
+            pcall(function() Rayfield:Notify({Title = "Xenyzx Hub", Content = "Discord link copied!", Duration = 3}) end)
+        end})
+        TabMisc:CreateButton({Name = "Copy Discord Username", Callback = function()
+            pcall(function()
+                if setclipboard then setclipboard("phemonaz") end
+            end)
+            pcall(function() Rayfield:Notify({Title = "Xenyzx Hub", Content = "Username copied!", Duration = 3}) end)
+        end})
+        TabMisc:CreateParagraph({Title = "Status", Content = "RightShift opens menu. All features are toggle-only."})
+        miscLabel = TabMisc:CreateLabel("Status: hub ready")
+        TabMisc:CreateButton({Name = "Unload", Callback = function()
+            State.AimOn = false
+            State.SilentOn = false
+            State.Chams = false
+            State.VehSpeedOn = false
+            State.VehFlyOn = false
+            restoreBoost()
+            clearFly()
+            pcall(function() FovGui:Destroy() end)
+            pcall(function() ESPGui:Destroy() end)
+            Rayfield:Destroy()
+        end})
+        Rayfield:Notify({Title = "Xenyzx Hub", Content = "Legit rage esp ally ready", Duration = 4})
+        print("[SX] hub UI built")
+    end)
+    if not okw then Rayfield = nil end
+end
+
+if not Rayfield then
+    pcall(function()
+        local g = Instance.new("ScreenGui")
+        g.Name = "XenyzxFallback"
+        g.ResetOnSpawn = false
+        g.Parent = playerGui
+        local m = Instance.new("Frame")
+        m.Size = UDim2.new(0, 240, 0, 500)
+        m.Position = UDim2.new(0, 20, 0.5, -200)
+        m.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+        m.BorderSizePixel = 0
+        m.Active = true
+        m.Draggable = true
+        m.Parent = g
+        local uc = Instance.new("UICorner", m)
+        uc.CornerRadius = UDim.new(0, 10)
+        local t = Instance.new("TextLabel")
+        t.Size = UDim2.new(1, 0, 0, 34)
+        t.BackgroundColor3 = Color3.fromRGB(140, 80, 255)
+        t.Text = "Xenyzx Hub"
+        t.Font = Enum.Font.GothamBlack
+        t.TextSize = 14
+        t.TextColor3 = Color3.new(1, 1, 1)
+        t.Parent = m
+        local utc = Instance.new("UICorner", t)
+        utc.CornerRadius = UDim.new(0, 10)
+        local y = 42
+        local defs = {
+            {txt = "Legit Aimbot", get = function() return State.AimOn end, set = function() State.AimOn = not State.AimOn end},
+            {txt = "Rage Silent", get = function() return State.SilentOn end, set = function() State.SilentOn = not State.SilentOn end},
+            {txt = "Chams", get = function() return State.Chams end, set = function() State.Chams = not State.Chams end},
+            {txt = "Wall Check", get = function() return State.SilentWallCheck end, set = function() State.SilentWallCheck = not State.SilentWallCheck end},
+            {txt = "Wallbang", get = function() return State.Wallbang end, set = function() State.Wallbang = not State.Wallbang; if State.Wallbang then State.BulletTP = false end end},
+            {txt = "Bullet TP", get = function() return State.BulletTP end, set = function() State.BulletTP = not State.BulletTP; if State.BulletTP then State.Wallbang = false end end},
+            {txt = "Veh speed", get = function() return State.VehSpeedOn end, set = function() State.VehSpeedOn = not State.VehSpeedOn end},
+            {txt = "Veh fly", get = function() return State.VehFlyOn end, set = function() State.VehFlyOn = not State.VehFlyOn end},
+            {txt = "Ignore allies", get = function() return State.IgnoreAllies end, set = function() State.IgnoreAllies = not State.IgnoreAllies end},
+        }
+        for i = 1, #defs do
+            local def = defs[i]
+            local b = Instance.new("TextButton")
+            b.Size = UDim2.new(1, -16, 0, 30)
+            b.Position = UDim2.new(0, 8, 0, y)
+            b.Text = def.txt
+            b.Font = Enum.Font.GothamBold
+            b.TextSize = 13
+            b.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+            b.TextColor3 = Color3.new(1, 1, 1)
+            b.Parent = m
+            local bc = Instance.new("UICorner", b)
+            bc.CornerRadius = UDim.new(0, 8)
+            b.MouseButton1Click:Connect(function()
+                def.set()
+                b.Text = def.txt .. " : " .. tostring(def.get())
+            end)
+            y = y + 36
+        end
+        local cred = Instance.new("TextLabel")
+        cred.Size = UDim2.new(1, -16, 0, 30)
+        cred.Position = UDim2.new(0, 8, 0, y)
+        cred.BackgroundTransparency = 1
+        cred.Font = Enum.Font.Gotham
+        cred.TextSize = 11
+        cred.TextColor3 = Color3.fromRGB(180, 180, 200)
+        cred.Text = "phemonaz | discord.gg/uKbHH6vKD"
+        cred.Parent = m
+        print("[SX] fallback built")
+    end)
+end
+
+local frame = 0
+local curAim = nil
+local conn = RunService.Heartbeat:Connect(function()
+    frame = frame + 1
+    Camera = workspace.CurrentCamera
+    if not Camera then return end
+    if frame % 2 == 0 then
+        silPart, silPlr, silScreen = findSilent()
+    end
+    pcall(updateVehicle)
+    pcall(function()
+        local mp = UIS:GetMouseLocation()
+        if SilCircle then
+            local showS = State.SilentShow and State.SilentOn and menuOpen
+            SilCircle.Visible = showS
+            SilTracer.Visible = false
+            if showS then
+                SilCircle.Size = UDim2.new(0, State.SilentFOV * 2, 0, State.SilentFOV * 2)
+                SilCircle.Position = UDim2.new(0, mp.X, 0, mp.Y)
+                if silPart then SilStroke.Color = VIS else SilStroke.Color = PINK end
+                if silScreen and silPart then
+                    local fromX = Camera.ViewportSize.X / 2
+                    local fromY = Camera.ViewportSize.Y
+                    local dx = silScreen.X - fromX
+                    local dy = silScreen.Y - fromY
+                    local len = math.sqrt(dx * dx + dy * dy)
+                    if len > 4 then
+                        SilTracer.Visible = true
+                        SilTracer.Size = UDim2.new(0, len, 0, 2)
+                        SilTracer.Position = UDim2.new(0, (fromX + silScreen.X) / 2, 0, (fromY + silScreen.Y) / 2)
+                        SilTracer.Rotation = math.deg(math.atan2(dy, dx))
+                        if curAim and silPlr and curAim == silPlr then
+                            SilTracer.BackgroundColor3 = CYAN
+                        else
+                            SilTracer.BackgroundColor3 = PINK
+                        end
+                    end
+                end
+            end
+        end
+        if AimCircle then
+            local showA = State.AimShow and State.AimOn and menuOpen
+            AimCircle.Visible = showA
+            if showA then
+                AimCircle.Size = UDim2.new(0, State.AimFOV * 2, 0, State.AimFOV * 2)
+                AimCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+            end
+        end
+    end)
+    pcall(function()
+        local tgt, pos = findAim()
+        curAim = tgt
+        if tgt and pos then
+            local ch = tgt.Character
+            local r = nil
+            if ch then r = ch:FindFirstChild("HumanoidRootPart") end
+                if r then pos = pos + r.Velocity * State.AimPred end
+            local t = math.clamp(1 / math.max(1, State.AimSmooth), 0.05, 1)
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pos), t)
+        end
+    end)
+    if frame % 3 ~= 0 then return end
+    pcall(function()
+        local mr = myRoot()
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            local s = getS(plr)
+            local c, hum, root = validChar(plr)
+            if not c then
+                s.hl.Enabled = false
+                s.bill.Enabled = false
+                s.box.Visible = false
+                continue
+            end
+            local dist = 0
+            if mr then dist = (mr.Position - root.Position).Magnitude end
+            if dist > State.MaxDist then
+                s.hl.Enabled = false
+                s.bill.Enabled = false
+                s.box.Visible = false
+                continue
+            end
+            local head = c:FindFirstChild("Head")
+            local apos = root.Position
+            if head then apos = head.Position end
+            local col = VIS
+            if not vis(Camera.CFrame.Position, apos, c) then col = HID end
+            if State.Chams then
+                if s.hl.Adornee ~= c then s.hl.Adornee = c end
+                s.hl.Enabled = true
+                s.hl.FillColor = col
+                s.hl.OutlineColor = col
+                s.hl.FillTransparency = State.Fill
+            else
+                s.hl.Enabled = false
+            end
+            if State.Name or State.Dist then
+                local ad = head or root
+                if s.bill.Adornee ~= ad then s.bill.Adornee = ad end
+                s.bill.Enabled = true
+                s.n.Visible = State.Name
+                s.d.Visible = State.Dist
+                if State.Name then
+                    s.n.Text = plr.Name
+                    s.n.TextColor3 = col
+                end
+                if State.Dist then s.d.Text = math.floor(dist) .. " studs" end
+            else
+                s.bill.Enabled = false
+            end
+            if State.Box then
+                local topPos = root.Position + Vector3.new(0, 3, 0)
+                if head then topPos = head.Position + Vector3.new(0, 1, 0) end
+                local botPos = root.Position - Vector3.new(0, 3, 0)
+                local t2, tOn = Camera:WorldToViewportPoint(topPos)
+                local b2, bOn = Camera:WorldToViewportPoint(botPos)
+                if tOn and bOn then
+                    local h = math.abs(b2.Y - t2.Y)
+                    local w = h * 0.6
+                    s.box.Visible = true
+                    s.box.Size = UDim2.new(0, w, 0, h)
+                    s.box.Position = UDim2.new(0, (t2.X + b2.X) / 2 - w / 2, 0, (t2.Y + b2.Y) / 2 - h / 2)
+                    s.boxStroke.Color = col
+                else
+                    s.box.Visible = false
+                end
+            else
+                s.box.Visible = false
+            end
+            if silPlr == plr then
+                s.hl.FillColor = PINK
+                s.hl.OutlineColor = PINK
+            elseif curAim == plr then
+                s.hl.FillColor = CYAN
+                s.hl.OutlineColor = CYAN
+            end
+        end
+        if miscLabel then
+            local sn = "none"
+            if silPlr then sn = silPlr.Name end
+            local an = "none"
+            if curAim then an = curAim.Name end
+            local vn = "foot"
+            local st = getSeat()
+            if st then vn = "driving" end
+            if State.VehFlyOn and st then vn = "flying" end
+            pcall(function() miscLabel:Set("Silent " .. sn .. " | Aim " .. an .. " | " .. vn) end)
+        end
+    end)
+end)
+if getgenv then getgenv()._SXH = conn end
+print("[SX] hub loaded")
